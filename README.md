@@ -17,7 +17,7 @@
   <em>Open a <code>.jsx</code> or <code>.tsx</code> file from Downloads. See it rendered. No Vite, no Next.js, no setup.</em>
 </p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/ZinkoSoft/jsx-artifact/main/docs/preview-demo.gif" alt="Demo — open a JSX file and see it rendered instantly" width="800" /></p>
+<p align="center"><img src="https://github.com/ZinkoSoft/jsx-artifact/raw/main/docs/preview-demo.gif" alt="Demo — open a JSX file and see it rendered instantly" width="800" /></p>
 
 ---
 
