@@ -1,0 +1,95 @@
+{
+  "name": "jsx-artifact-preview",
+  "displayName": "JSX Artifact Preview",
+  "description": "Preview single-file React/JSX artifacts in a side panel — the same output you'd see in the Claude artifact viewer, without leaving VSCode.",
+  "version": "0.1.0",
+  "publisher": "zinkosoft",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZinkoSoft/jsx-artifact"
+  },
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:javascriptreact",
+    "onLanguage:typescriptreact"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "jsxArtifactPreview.showPreviewToSide",
+        "title": "JSX Artifact: Open Preview to the Side",
+        "icon": "$(open-preview)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "jsxArtifactPreview.showPreviewToSide",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "editorLangId == javascriptreact || editorLangId == typescriptreact"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "jsxArtifactPreview.showPreviewToSide",
+          "when": "editorLangId == javascriptreact || editorLangId == typescriptreact",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "JSX Artifact Preview",
+      "properties": {
+        "jsxArtifactPreview.autoPreviewLooseFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open preview when a .jsx/.tsx file outside the workspace is opened."
+        },
+        "jsxArtifactPreview.injectFonts": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "string",
+                "description": "Font family name"
+              },
+              "weight": {
+                "type": ["string", "number"],
+                "description": "Font weight (e.g. 400, '100 900')"
+              },
+              "url": {
+                "type": "string",
+                "description": "URL to the font file (woff2 preferred)"
+              }
+            },
+            "required": ["family", "url"]
+          },
+          "description": "Array of @font-face entries to pre-register in the preview. Each entry: { family, weight?, url }."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}
