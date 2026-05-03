@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-007acc?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.2.0-007acc?style=for-the-badge" alt="Version" />
   <img src="https://img.shields.io/badge/react-18-61dafb?style=for-the-badge&logo=react&logoColor=white" alt="React 18" />
   <img src="https://img.shields.io/badge/vscode-1.80+-purple?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VSCode 1.80+" />
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
@@ -75,7 +75,7 @@ Syntax errors, missing imports, and runtime crashes show as a clean overlay card
 <td>
 
 ### Zero Config Required
-Works out of the box. React 18 and Babel are loaded from CDN inside the webview. No `node_modules`, no bundler, no config files.
+Works out of the box. React 18, Babel, and the Phase-2 libraries (lucide-react, recharts, d3, framer-motion) are loaded from CDN inside the webview. No `node_modules`, no bundler, no config files.
 
 </td>
 <td>
@@ -96,7 +96,7 @@ All compilation runs inside the webview process. The editor stays responsive eve
 **From `.vsix` (pre-release):**
 
 ```bash
-code --install-extension jsx-artifact-preview-0.1.0.vsix
+code --install-extension jsx-artifact-preview-0.2.0.vsix
 ```
 
 **From Marketplace (when published):**
@@ -152,11 +152,13 @@ Font URLs that 404 or have CORS issues silently fall back to the system font sta
 ┌──────────────────┐       postMessage         ┌──────────────────────────┐
 │  Extension Host  │ ──────(raw source)──────▶ │     Webview (Chromium)   │
 │                  │                           │                          │
-│  • Reads file    │                           │  1. Strip/rewrite imports│
-│  • Watches saves │                           │  2. Rewrite exports      │
-│  • Opens panel   │                           │  3. Babel.transform(JSX) │
-│                  │ ◀────(log messages)────── │  4. eval() compiled code │
-│  • Output channel│                           │  5. ReactDOM.render()    │
+│  • Reads file    │                           │  0. Boot: load React +   │
+│  • Watches saves │                           │     Phase-2 libs (esm.sh)│
+│  • Opens panel   │                           │  1. Strip/rewrite imports│
+│                  │ ◀────(log messages)────── │  2. Rewrite exports      │
+│  • Output channel│                           │  3. Babel.transform(JSX) │
+│                  │                           │  4. eval() compiled code │
+│                  │                           │  5. createRoot().render()│
 └──────────────────┘                           └──────────────────────────┘
 ```
 
@@ -170,9 +172,11 @@ The preview environment supports a curated set of imports. Unknown imports fail 
 
 | Phase | Imports | Status |
 |-------|---------|--------|
-| **1 (current)** | `react`, `react-dom` | Available |
-| **2 (planned)** | `lucide-react`, `recharts`, `d3`, `framer-motion` | Coming soon |
+| **1** | `react`, `react-dom` | Available |
+| **2** | `lucide-react`, `recharts`, `d3`, `framer-motion` | Available |
 | **3 (maybe)** | `shadcn/ui`, Tailwind runtime | Under consideration |
+
+All runtime libraries — React, ReactDOM, and the Phase-2 packages — are fetched from [esm.sh](https://esm.sh) as ESM modules on first preview load, so the initial render after extension activation makes a network round-trip (subsequent renders use the browser cache). Every package's `react`/`react-dom` peer is pinned to the same `18.3.1` deps query, which guarantees a single shared React instance across the tree (avoids the dual-React class of bug where Phase-2 components silently unmount because their hooks see a different React than the host). Transitive dependencies (`prop-types`, `react-is`, etc.) are resolved automatically — you don't need to allowlist them.
 
 If your file declares its own `<style>` or `@font-face` inline, those work naturally — no configuration needed.
 
@@ -187,6 +191,9 @@ Open the **Output** panel (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>) and sel
 - Babel compile timing
 - Render success/failure with elapsed time
 - Full error messages with stack traces
+- Async failures from animation hooks, ResizeObserver, and other post-render code paths (captured via `window.onerror` / `unhandledrejection` listeners and routed to the same Output channel)
+
+Render-time errors thrown by the user's component are caught by an internal error boundary and shown in the overlay card instead of silently unmounting the tree.
 
 ---
 
@@ -198,7 +205,7 @@ Open the **Output** panel (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>) and sel
 - [x] Error overlay with line numbers
 - [x] Configurable font injection
 - [x] Output channel logging
-- [ ] Expanded import allowlist (Phase 2)
+- [x] Expanded import allowlist (Phase 2: lucide-react, recharts, d3, framer-motion)
 - [ ] VSCode theme passthrough to preview
 - [ ] TypeScript-first compilation (SWC-wasm)
 - [ ] Claude Code extension integration
@@ -208,7 +215,7 @@ Open the **Output** panel (<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd>) and sel
 ## Requirements
 
 - **VSCode** 1.80 or later
-- **Internet connection** for initial load (React and Babel are fetched from CDN)
+- **Internet connection** for initial load (React, Babel, and Phase-2 packages are fetched from CDN — `unpkg.com` for Babel and `esm.sh` for everything else)
 
 ---
 

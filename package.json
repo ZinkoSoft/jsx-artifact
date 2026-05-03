@@ -2,7 +2,7 @@
   "name": "jsx-artifact-preview",
   "displayName": "JSX Artifact Preview",
   "description": "Preview single-file React/JSX artifacts in a side panel — the same output you'd see in the Claude artifact viewer, without leaving VSCode.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "zinkosoft",
   "license": "MIT",
   "repository": {

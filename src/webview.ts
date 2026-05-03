@@ -142,12 +142,60 @@ export function getWebviewContent(
     </div>
   </div>
 
-  <!-- React 18 (UMD builds — exposes window.React, window.ReactDOM) -->
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
-
   <!-- Babel Standalone for in-browser JSX compilation -->
   <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js" crossorigin></script>
+
+  <!--
+    All runtime libraries load from esm.sh as ESM. We deliberately do NOT
+    use unpkg UMD builds here — if React is loaded as UMD AND as a
+    transitive dep of recharts/framer-motion, we get two React instances,
+    and any hook call inside a Phase-2 component silently unmounts the
+    tree. By pinning every package's deps=react@18.3.1 through esm.sh,
+    they all share the same internal React module.
+
+    Each package's namespace is normalized so that both "import X from
+    'pkg'" and "import { x } from 'pkg'" resolve through the
+    const-binding logic in processImports().
+  -->
+  <script type="module">
+    const PKGS = {
+      React:          'https://esm.sh/react@18.3.1',
+      ReactDOM:       'https://esm.sh/react-dom@18.3.1?deps=react@18.3.1',
+      ReactDOMClient: 'https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1',
+      __LucideReact:  'https://esm.sh/lucide-react@0.469.0?deps=react@18.3.1',
+      __Recharts:     'https://esm.sh/recharts@2.15.0?deps=react@18.3.1,react-dom@18.3.1',
+      __d3:           'https://esm.sh/d3@7.9.0',
+      __FramerMotion: 'https://esm.sh/framer-motion@11.15.0?deps=react@18.3.1,react-dom@18.3.1',
+    };
+    function normalize(mod, extra) {
+      const def = mod.default;
+      const base = (def && typeof def === 'object')
+        ? Object.assign({}, def, mod, { default: def })
+        : Object.assign({}, mod);
+      return extra ? Object.assign(base, extra) : base;
+    }
+    try {
+      const entries = await Promise.all(
+        Object.entries(PKGS).map(async ([k, url]) => [k, await import(url)])
+      );
+      const loaded = Object.fromEntries(entries);
+      window.React    = normalize(loaded.React);
+      // Merge react-dom@18.3.1/client (which exports createRoot, hydrateRoot)
+      // onto the legacy react-dom namespace so that the eval'd code AND the
+      // webview's own ReactDOM.createRoot(rootEl) call both resolve.
+      window.ReactDOM = normalize(loaded.ReactDOM, {
+        createRoot:   loaded.ReactDOMClient.createRoot,
+        hydrateRoot:  loaded.ReactDOMClient.hydrateRoot,
+      });
+      window.__LucideReact   = normalize(loaded.__LucideReact);
+      window.__Recharts      = normalize(loaded.__Recharts);
+      window.__d3            = normalize(loaded.__d3);
+      window.__FramerMotion  = normalize(loaded.__FramerMotion);
+      window.dispatchEvent(new Event('jsx-artifact:libs-ready'));
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('jsx-artifact:libs-error', { detail: String(err) }));
+    }
+  </script>
 
   <script>
     // ─── Globals ────────────────────────────────────────
@@ -168,13 +216,53 @@ export function getWebviewContent(
       vscodeApi.postMessage({ type: 'log', level: level, message: msg });
     }
 
-    // ─── Phase 1 import allowlist ───────────────────────
+    // ─── Async/global error capture ─────────────────────
+    // Errors raised in framer-motion animation callbacks, recharts effects,
+    // or any other post-render async path bypass try/catch. Surface them.
+    window.addEventListener('error', (e) => {
+      const m = (e.error && e.error.stack) || e.message || String(e);
+      log('error', 'window.onerror: ' + m);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const r = e.reason;
+      const m = (r && r.stack) || (r && r.message) || String(r);
+      log('error', 'unhandledrejection: ' + m);
+    });
+
+    // ─── Import allowlist (Phase 1 + 2) ─────────────────
+    // Maps package name → window global. Phase-1 globals (React, ReactDOM)
+    // come from UMD <script> tags above. Phase-2 globals (__LucideReact,
+    // __Recharts, __d3, __FramerMotion) are populated by the ESM bootstrap
+    // module that runs after Babel loads.
     const ALLOWED_IMPORTS = {
       'react': 'React',
       'react-dom': 'ReactDOM',
       'react-dom/client': 'ReactDOM',
       'react/jsx-runtime': 'React',
+      'lucide-react': '__LucideReact',
+      'recharts': '__Recharts',
+      'd3': '__d3',
+      'framer-motion': '__FramerMotion',
     };
+
+    // Phase-2 packages have no default export — every symbol is named.
+    // If a user writes \`import d3 from 'd3'\` we still bind, but log a hint.
+    const NAMESPACE_ONLY = new Set(['lucide-react', 'recharts', 'd3', 'framer-motion']);
+
+    // Promise that resolves once the ESM bootstrap has populated all
+    // Phase-2 globals. compileAndRender awaits this before its first run.
+    let __resolveLibsReady;
+    const libsReady = new Promise((resolve) => { __resolveLibsReady = resolve; });
+    window.addEventListener('jsx-artifact:libs-ready', () => {
+      log('info', 'Phase-2 libraries loaded');
+      __resolveLibsReady();
+    });
+    window.addEventListener('jsx-artifact:libs-error', (e) => {
+      // Resolve anyway so the editor isn't permanently frozen — the user
+      // will see a clear import error if they actually try to use one.
+      log('error', 'Phase-2 libraries failed to load: ' + (e.detail || 'unknown'));
+      __resolveLibsReady();
+    });
 
     // ─── Error display ──────────────────────────────────
     function showError(type, message) {
@@ -242,7 +330,7 @@ export function getWebviewContent(
           }
           return {
             processedCode: null,
-            error: 'Import not found: "' + packageName + '" is not in the allowed import list.\\n\\nAllowed imports (Phase 1): react, react-dom\\n\\nPhase 2 will add: lucide-react, recharts, d3, framer-motion'
+            error: 'Import not found: "' + packageName + '" is not in the allowed import list.\\n\\nAllowed imports: react, react-dom, lucide-react, recharts, d3, framer-motion'
           };
         }
 
@@ -262,6 +350,9 @@ export function getWebviewContent(
             declarations.push('const ' + namespaceImport + ' = ' + globalName + ';');
           }
           if (defaultImport && defaultImport !== globalName) {
+            if (NAMESPACE_ONLY.has(packageName)) {
+              log('warn', '"' + packageName + '" has no default export; bound "' + defaultImport + '" to its namespace. Prefer: import * as ' + defaultImport + " from '" + packageName + "'");
+            }
             declarations.push('const ' + defaultImport + ' = ' + globalName + ';');
           }
           if (namedImports) {
@@ -364,7 +455,10 @@ export function getWebviewContent(
     // ─── Compile and render ─────────────────────────────
     let currentLanguageId = 'javascriptreact';
 
-    function compileAndRender(code) {
+    async function compileAndRender(code) {
+      // First-render gate: wait for the Phase-2 ESM bootstrap so that
+      // any const __X = window.__X references resolve to real modules.
+      if (libsReady) { await libsReady; }
       // Empty or whitespace-only file — show a placeholder, not an error.
       if (!code || !code.trim()) {
         hideError();
@@ -448,7 +542,28 @@ export function getWebviewContent(
           reactRoot = ReactDOM.createRoot(rootEl);
         }
 
-        reactRoot.render(React.createElement(Component));
+        // Wrap the user's component in an error boundary so that render-time
+        // throws (bad hooks, undefined components, etc.) surface in the
+        // overlay instead of silently unmounting the tree.
+        if (!window.__ArtifactErrorBoundary) {
+          window.__ArtifactErrorBoundary = class extends React.Component {
+            constructor(props) { super(props); this.state = { err: null }; }
+            static getDerivedStateFromError(err) { return { err: err }; }
+            componentDidCatch(err, info) {
+              const msg = (err && err.message) ? err.message : String(err);
+              showError('Render error', msg + (info && info.componentStack ? '\\n' + info.componentStack : ''));
+            }
+            render() {
+              if (this.state.err) { return null; }
+              return this.props.children;
+            }
+          };
+        }
+
+        reactRoot.render(
+          React.createElement(window.__ArtifactErrorBoundary, null,
+            React.createElement(Component))
+        );
         lastGoodRender = Component;
 
         // Restore scroll after render
